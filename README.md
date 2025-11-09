@@ -1,6 +1,6 @@
 # Wellbeing-Checker-V1
 A desktop app made in python that:
-  1. Summarizes your wellbeing throughout the month and ongoing, in the form of statistics and AI's opinion.
+  1. Summarizes your wellbeing throughout the month and ongoing, in the form of statistics, graph, and AI feedback.
   2. Helps you recall your best and worst memories.
 
 # Features in V1
@@ -15,6 +15,14 @@ A desktop app made in python that:
   6. A greeting message to the user, which randomly rotates around the words:
      - "Have a nice day!"
      - "How's your day so far? Doing good?
-     - "Hope you feeling good!"
+     - "Hope you are feeling good!"
      - "Best of luck for today!"
      - "Cheer up, will ya!"
+  7. Account creation that is stored in local database.
+  8. Click "Save" to save the current input.
+  9. Upon reaching 30th/31th (28th for February), the user will see complete summarization of their moods throughout the whole month, this include:
+     - AI feedback
+     - best and worse memory highlights of the month
+     - statistics and graph of your mood (negative and positive moods)
+
+# Introduction to the app (Instructions)
