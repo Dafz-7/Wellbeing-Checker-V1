@@ -1,0 +1,27 @@
+# Created by venv; see https://docs.python.org/3/library/venv.html
+
+# Ignore virtual environments
+venv/
+*.venv/
+
+# Ignore IDE/Editor settings
+.vscode/
+.idea/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore build and distribution folders
+build/
+dist/
+*.egg-info/
+
+# Ignore OS-generated files
+.DS_Store
+Thumbs.db
+
+# Ignore logs
+*.log
