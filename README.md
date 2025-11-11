@@ -19,7 +19,7 @@ A desktop app made in python that:
      - "Best of luck for today!"
      - "Cheer up, will ya!"
   7. Account creation that is stored in local database.
-  8. Click "Save" to save the current input.
+  8. Click "Save" to save current input (settings and dairy inputs will also be saved into local database).
   9. Upon reaching 30th/31th (28th for February), the user will see complete summarization of their moods throughout the whole month, this include:
      - AI feedback
      - best and worse memory highlights of the month
