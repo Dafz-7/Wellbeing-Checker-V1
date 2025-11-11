@@ -26,3 +26,5 @@ A desktop app made in python that:
      - statistics and graph of your mood (negative and positive moods)
 
 # Introduction to the app (Instructions)
+  
+  
