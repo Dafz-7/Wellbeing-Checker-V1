@@ -7,7 +7,10 @@ from kivy.uix.label import Label
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.app import App
-from database import add_entry   # import helper function
+
+# import the new helper and sentiment analyzer
+from database import add_entry_with_sentiment
+from sentiment_simple import analyze_sentiment
 
 class DiaryScreen(Screen):
     current_datetime = StringProperty("")
@@ -46,12 +49,20 @@ class DiaryScreen(Screen):
             self._show_popup("Error", "No user logged in.")
             return
 
-        add_entry(app.current_user_id, entry_text, timestamp)
+        # Run simple sentiment analysis
+        wellbeing_level, polarity = analyze_sentiment(entry_text)
 
+        # Save to database with wellbeing level
+        add_entry_with_sentiment(app.current_user_id, entry_text, timestamp, wellbeing_level, polarity)
+
+        # Clear field and mark entry saved
         self.ids.entry.text = ""
         self.last_entry_date = today
-        self.entry_saved = True   # <-- mark as saved
-        self._show_popup("Success", "Diary entry saved successfully!")
+        self.entry_saved = True
+        self._show_popup(
+            "Success",
+            f"Diary entry saved!\nWellbeing level: {wellbeing_level}\nPolarity: {polarity:.2f}"
+        )
 
     def refresh_page(self):
         content = BoxLayout(orientation="vertical", spacing=10, padding=10)
@@ -74,7 +85,6 @@ class DiaryScreen(Screen):
             self.ids.entry.text = ""
             self.entry_saved = False
             self.update_datetime()
-            print("Diary page refreshed")
             popup.dismiss()
             self._show_popup("Success", "Refresh success!")
 
