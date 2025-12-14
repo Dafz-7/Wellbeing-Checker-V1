@@ -4,7 +4,9 @@ from kivy.uix.label import Label
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.app import App
+
 from database import check_user, ensure_settings
+
 
 class LoginScreen(Screen):
     def show_popup(self, title, message):
@@ -40,6 +42,9 @@ class LoginScreen(Screen):
             app.current_user_id = user_id
             app.current_username = username
             app.current_user_display = f"Welcome, {username}"
+
+            # ✅ Generate summaries silently for all months
+            app.generate_all_summaries(user_id)
 
             # Load and apply timer_length from DB
             app.apply_user_timer(user_id)

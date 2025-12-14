@@ -3,8 +3,11 @@ from kivy.uix.popup import Popup
 from kivy.uix.label import Label
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.app import App
+
 import sqlite3
-from database import add_user   # import helper function
+from database import add_user, get_user_id   # make sure get_user_id exists to fetch the new user's ID
+
 
 class SignupScreen(Screen):
     def show_popup(self, title, message):
@@ -38,7 +41,17 @@ class SignupScreen(Screen):
         # Try to add user to database
         success = add_user(username, password)
         if success:
+            # Fetch the new user's ID
+            new_user_id = get_user_id(username)
+
+            # Set current user in the app and generate summaries
+            app = App.get_running_app()
+            app.current_user_id = new_user_id
+            app.current_user_display = f"Welcome, {username}!"
+            app.generate_all_summaries(new_user_id)
+
             self.show_popup("Success", f"Account successfully created for {username}!")
+            # After signup, go to login screen (or directly to summary if you prefer)
             self.manager.transition.direction = "right"
             self.manager.current = "login"
         else:
@@ -65,7 +78,6 @@ class SignupScreen(Screen):
             self.ids.username.text = ""
             self.ids.password.text = ""
             self.ids.confirm.text = ""
-            print("Signup page refreshed")
             popup.dismiss()
 
             success_content = BoxLayout(orientation="vertical", spacing=10, padding=10)
