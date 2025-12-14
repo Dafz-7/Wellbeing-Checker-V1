@@ -1,42 +1,116 @@
 from kivy.uix.screenmanager import Screen
-from kivy.uix.popup import Popup
-from kivy.uix.label import Label
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
+from kivy.uix.label import Label
 from kivy.app import App
-from database import get_entries   # import helper function
+from datetime import datetime
+
+from kivy_garden.matplotlib import FigureCanvasKivyAgg
+import matplotlib.pyplot as plt
+
+from database import get_entries_for_month, compute_month_stats
+
 
 class SummaryScreen(Screen):
-    def show_summary(self):
+    def on_pre_enter(self):
+        # Automatically render summary when entering the screen
+        self.render_current_month_summary()
+
+    def render_current_month_summary(self):
         app = App.get_running_app()
         if app.current_user_id is None:
             self._show_popup("Error", "No user logged in.")
             return
 
-        # Fetch entries from database
-        rows = get_entries(app.current_user_id)
+        today = datetime.now()
+        # Use selected month if set, otherwise default to current month
+        year = app.selected_year if app.selected_year is not None else today.year
+        month = app.selected_month if app.selected_month is not None else today.month
+
+        rows = get_entries_for_month(app.current_user_id, year, month)
         if not rows:
-            self._show_popup("Info", "No diary entries found.")
+            self._show_popup("Info", f"No diary entries found for {year}-{month:02d}.")
             return
 
-        # Build popup with entries
-        content = BoxLayout(orientation="vertical", spacing=10, padding=10)
-        for entry, ts in rows[:10]:  # show latest 10 entries
-            content.add_widget(Label(text=f"{ts}: {entry[:50]}..."))
+        stats = compute_month_stats(rows)
 
-        close_btn = Button(text="Close", size_hint_y=None, height=40)
-        content.add_widget(close_btn)
+        # Clear container (defined in KV as id: summary_container)
+        self.ids.summary_container.clear_widgets()
 
-        popup = Popup(title="Monthly Summary",
-                      content=content,
-                      size_hint=(None, None),
-                      size=(400, 400),
-                      auto_dismiss=False)
+        # Title reflects selected month
+        self.ids.summary_container.add_widget(
+            Label(
+                text=f"Monthly Summary: {datetime(year, month, 1).strftime('%B %Y')}",
+                size_hint_y=None,
+                height=40,
+            )
+        )
 
-        close_btn.bind(on_release=popup.dismiss)
-        popup.open()
+        # Matplotlib bar chart
+        labels = ["very sad", "sad", "normal", "happy", "very happy"]
+        values = [stats["counts"][l] for l in labels]
+
+        fig, ax = plt.subplots(figsize=(5, 3), dpi=100)
+        ax.bar(labels, values, color=["#c0392b", "#e67e22", "#95a5a6", "#27ae60", "#2ecc71"])
+        ax.set_ylabel("Number of days")
+        ax.set_title("Wellbeing level")
+        ax.set_xticklabels(labels, rotation=20, ha="right")
+        ax.set_yticks(range(0, max(values)+1))
+
+        canvas = FigureCanvasKivyAgg(fig)
+        canvas.size_hint_y = None
+        canvas.height = 400
+        self.ids.summary_container.add_widget(canvas)
+        plt.close(fig)
+
+        # Textual insights
+        info = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            height=140,
+            padding=8,
+            spacing=6
+        )
+        info.add_widget(Label(text=f"Average polarity: {stats['avg_polarity']:.2f}"))
+        if stats["happiest_day"]:
+            info.add_widget(Label(text=f"Happiest day: {stats['happiest_day']}"))
+            info.add_widget(Label(text=f"Diary: {stats['happiest_entry'][:50]}..."))
+        else:
+            info.add_widget(Label(text="Happiest day: —"))
+        self.ids.summary_container.add_widget(info)
+
+        # AI Recommendation (rule-based)
+        recommendation = self._generate_recommendation(stats)
+        self.ids.summary_container.add_widget(
+            Label(
+                text=f"Recommendation: {recommendation}",
+                bold=True,
+                size_hint_y=None,
+                height=60,
+                color=(0.2, 0.6, 0.2, 1)  # greenish text to stand out
+            )
+        )
+
+    def _generate_recommendation(self, stats):
+        counts = stats["counts"]
+        total = sum(counts.values())
+
+        if total == 0:
+            return "No entries yet this month. Try writing regularly to track your wellbeing."
+
+        sad_total = counts["sad"] + counts["very sad"]
+        happy_total = counts["happy"] + counts["very happy"]
+
+        if sad_total > happy_total:
+            return "You’ve had more sad days recently. Consider adding positive reflections or gratitude notes."
+        elif happy_total > sad_total:
+            return "Your wellbeing trend is positive — keep nurturing the habits that make you feel good!"
+        else:
+            return "Your month looks balanced. Keep journaling to maintain awareness of your wellbeing."
 
     def refresh_page(self):
+        from kivy.uix.popup import Popup
+        from kivy.uix.button import Button
+
         content = BoxLayout(orientation="vertical", spacing=10, padding=10)
         content.add_widget(Label(text="You sure to refresh? All changes will be lost."))
 
@@ -47,15 +121,19 @@ class SummaryScreen(Screen):
         buttons.add_widget(no_btn)
         content.add_widget(buttons)
 
-        popup = Popup(title="Confirm Refresh",
-                      content=content,
-                      size_hint=(None, None),
-                      size=(350, 200),
-                      auto_dismiss=False)
+        popup = Popup(
+            title="Confirm Refresh",
+            content=content,
+            size_hint=(None, None),
+            size=(350, 200),
+            auto_dismiss=False
+        )
 
         def do_refresh(instance):
-            print("Summary page refreshed")
+            if "summary_container" in self.ids:
+                self.ids.summary_container.clear_widgets()
             popup.dismiss()
+            self.render_current_month_summary()
             self._show_popup("Success", "Refresh success!")
 
         def cancel_refresh(instance):
@@ -63,22 +141,22 @@ class SummaryScreen(Screen):
 
         yes_btn.bind(on_release=do_refresh)
         no_btn.bind(on_release=cancel_refresh)
-
         popup.open()
 
     def _show_popup(self, title, message):
+        from kivy.uix.popup import Popup
+        from kivy.uix.button import Button
         content = BoxLayout(orientation="vertical", spacing=10, padding=10)
         content.add_widget(Label(text=message))
-
         ok_btn = Button(text="OK", size_hint_y=None, height=40)
         content.add_widget(ok_btn)
-
-        popup = Popup(title=title,
-                      content=content,
-                      size_hint=(None, None),
-                      size=(300, 200),
-                      auto_dismiss=False)
-
+        popup = Popup(
+            title=title,
+            content=content,
+            size_hint=(None, None),
+            size=(300, 200),
+            auto_dismiss=False
+        )
         ok_btn.bind(on_release=popup.dismiss)
         popup.open()
 
