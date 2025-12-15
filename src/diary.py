@@ -12,6 +12,7 @@ from kivy.app import App
 from database import add_entry_with_sentiment
 from sentiment_simple import analyze_sentiment
 
+
 class DiaryScreen(Screen):
     current_datetime = StringProperty("")
     last_entry_date = None  # track last diary entry date
@@ -53,7 +54,12 @@ class DiaryScreen(Screen):
         wellbeing_level, polarity = analyze_sentiment(entry_text)
 
         # Save to database with wellbeing level
-        add_entry_with_sentiment(app.current_user_id, entry_text, timestamp, wellbeing_level, polarity)
+        success = add_entry_with_sentiment(app.current_user_id, entry_text, timestamp, wellbeing_level, polarity)
+
+        if not success:
+            # Duplicate entry for this user/date
+            self._show_popup("Error", "You already wrote a diary entry today. Only one per day allowed.")
+            return
 
         # Clear field and mark entry saved
         self.ids.entry.text = ""
