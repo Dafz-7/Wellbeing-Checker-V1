@@ -16,20 +16,21 @@ def init_db():
     )
     """)
 
-    # Diary entries table (with wellbeing_level column)
+    # Diary entries table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS diary (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL,
         entry TEXT NOT NULL,
         timestamp TEXT NOT NULL,
+        date TEXT,
         wellbeing_level TEXT,
         polarity REAL,
         FOREIGN KEY(user_id) REFERENCES users(id)
     )
     """)
 
-    # Settings table (only timer_length now)
+    # Settings table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS settings (
         user_id INTEGER PRIMARY KEY,
@@ -59,8 +60,39 @@ def init_db():
     )
     """)
 
+    # Migrate diary table to enforce uniqueness
+    _migrate_diary_date_and_uniqueness(cursor)
+
     conn.commit()
     conn.close()
+
+
+def _migrate_diary_date_and_uniqueness(cursor):
+    # Ensure 'date' column exists
+    cursor.execute("PRAGMA table_info(diary)")
+    cols = [row[1] for row in cursor.fetchall()]
+    if "date" not in cols:
+        cursor.execute("ALTER TABLE diary ADD COLUMN date TEXT")
+
+    # Backfill 'date' values from 'timestamp'
+    cursor.execute("UPDATE diary SET date = substr(timestamp, 1, 10) WHERE date IS NULL OR date = ''")
+
+    # Remove duplicates (keep earliest id per user/date)
+    cursor.execute("""
+        DELETE FROM diary
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM diary
+            GROUP BY user_id, date
+        )
+    """)
+
+    # Create unique index
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_diary_user_date
+        ON diary(user_id, date)
+    """)
+
 
 # ---------------- User Management ----------------
 
@@ -70,10 +102,7 @@ def add_user(username, password):
     try:
         cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
         user_id = cursor.lastrowid
-
-        # Insert default settings row for this user
         cursor.execute("INSERT INTO settings (user_id, timer_length) VALUES (?, 1800)", (user_id,))
-
         conn.commit()
         return True
     except sqlite3.IntegrityError:
@@ -90,7 +119,6 @@ def check_user(username, password):
     return result[0] if result else None
 
 def ensure_settings(user_id):
-    """Guarantee that a settings row exists for this user (for older accounts)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT 1 FROM settings WHERE user_id=?", (user_id,))
@@ -100,7 +128,6 @@ def ensure_settings(user_id):
     conn.close()
 
 def get_user_id(username):
-    """Return the user_id for a given username, or None if not found."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM users WHERE username=?", (username,))
@@ -108,35 +135,52 @@ def get_user_id(username):
     conn.close()
     return result[0] if result else None
 
+
 # ---------------- Diary Management ----------------
 
 def add_entry(user_id, entry, timestamp):
-    """Add diary entry without sentiment (legacy)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO diary (user_id, entry, timestamp) VALUES (?, ?, ?)",
-                   (user_id, entry, timestamp))
-    conn.commit()
-    conn.close()
+    date_str = _extract_date(timestamp)
+    try:
+        cursor.execute("INSERT INTO diary (user_id, entry, timestamp, date) VALUES (?, ?, ?, ?)",
+                       (user_id, entry, timestamp, date_str))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
 
 def add_entry_with_sentiment(user_id, entry, timestamp, wellbeing_level, polarity):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO diary (user_id, entry, timestamp, wellbeing_level, polarity)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user_id, entry, timestamp, wellbeing_level, polarity))
-    conn.commit()
-    conn.close()
+    date_str = _extract_date(timestamp)
+    try:
+        cursor.execute("""
+            INSERT INTO diary (user_id, entry, timestamp, date, wellbeing_level, polarity)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_id, entry, timestamp, date_str, wellbeing_level, polarity))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
 
 def get_entries(user_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT entry, timestamp, wellbeing_level, polarity FROM diary WHERE user_id=? ORDER BY timestamp DESC",
-                   (user_id,))
+    cursor.execute("""
+        SELECT entry, timestamp, wellbeing_level, polarity
+        FROM diary
+        WHERE user_id=?
+        ORDER BY timestamp DESC
+    """, (user_id,))
     rows = cursor.fetchall()
     conn.close()
     return rows
+
 
 # ---------------- Settings Management ----------------
 
@@ -157,6 +201,7 @@ def get_user_settings(user_id):
     if row:
         return {"timer_length": row[0]}
     return None
+
 
 # ---------------- Monthly Summary Helpers ----------------
 
@@ -260,3 +305,11 @@ def list_all_monthly_summaries(user_id):
     rows = c.fetchall()
     conn.close()
     return rows
+
+
+# ---------------- Utils ----------------
+
+def _extract_date(timestamp_str):
+    # Expecting formats like 'YYYY-MM-DD HH:MM:SS' or ISO timestamps;
+    # first 10 chars should be the date segment.
+    return timestamp_str[:10]
