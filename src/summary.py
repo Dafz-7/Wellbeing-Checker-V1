@@ -1,6 +1,8 @@
 from kivy.uix.screenmanager import Screen
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
+from kivy.uix.popup import Popup
+from kivy.clock import Clock
 from kivy.app import App
 from datetime import datetime
 
@@ -8,6 +10,9 @@ from kivy_garden.matplotlib import FigureCanvasKivyAgg
 import matplotlib.pyplot as plt
 
 from database import get_entries_for_month, compute_month_stats
+from ollama_helper import get_ai_recommendation
+
+import threading
 
 
 class SummaryScreen(Screen):
@@ -22,7 +27,6 @@ class SummaryScreen(Screen):
             return
 
         today = datetime.now()
-        # Use selected month if set, otherwise default to current month
         year = app.selected_year if app.selected_year is not None else today.year
         month = app.selected_month if app.selected_month is not None else today.month
 
@@ -33,10 +37,11 @@ class SummaryScreen(Screen):
 
         stats = compute_month_stats(rows)
 
-        # Clear container (defined in KV as id: summary_container)
+        # Clear both container
+        self.ids.chart_box.clear_widgets()
         self.ids.summary_container.clear_widgets()
 
-        # Title reflects selected month
+        # Title
         self.ids.summary_container.add_widget(
             Label(
                 text=f"Monthly Summary: {datetime(year, month, 1).strftime('%B %Y')}",
@@ -52,14 +57,14 @@ class SummaryScreen(Screen):
         fig, ax = plt.subplots(figsize=(5, 3), dpi=100)
         ax.bar(labels, values, color=["#c0392b", "#e67e22", "#95a5a6", "#27ae60", "#2ecc71"])
         ax.set_ylabel("Number of days")
-        ax.set_title("Wellbeing level")
+        ax.set_title("Wellbeing distribution")
         ax.set_xticklabels(labels, rotation=20, ha="right")
-        ax.set_yticks(range(0, max(values)+1))
+        ax.set_yticks(range(0, max(values) + 1))
 
         canvas = FigureCanvasKivyAgg(fig)
         canvas.size_hint_y = None
-        canvas.height = 400
-        self.ids.summary_container.add_widget(canvas)
+        canvas.height = 450
+        self.ids.chart_box.add_widget(canvas)
         plt.close(fig)
 
         # Textual insights
@@ -70,45 +75,68 @@ class SummaryScreen(Screen):
             padding=8,
             spacing=6
         )
-        info.add_widget(Label(text=f"Average polarity: {stats['avg_polarity']:.2f}"))
-        if stats["happiest_day"]:
+        info.add_widget(Label(text=f"Average polarity: {stats.get('avg_polarity', 0):.2f}"))
+        if stats.get("happiest_day"):
             info.add_widget(Label(text=f"Happiest day: {stats['happiest_day']}"))
-            info.add_widget(Label(text=f"Diary: {stats['happiest_entry'][:50]}..."))
+            if stats.get("happiest_entry"):
+                info.add_widget(Label(text=f"Diary: {stats['happiest_entry'][:50]}..."))
         else:
             info.add_widget(Label(text="Happiest day: —"))
+
         self.ids.summary_container.add_widget(info)
 
-        # AI Recommendation (rule-based)
-        recommendation = self._generate_recommendation(stats)
-        self.ids.summary_container.add_widget(
-            Label(
-                text=f"Recommendation: {recommendation}",
-                bold=True,
-                size_hint_y=None,
-                height=60,
-                color=(0.2, 0.6, 0.2, 1)  # greenish text to stand out
-            )
-        )
+        # AI recommendation (threaded)
+        self._generate_recommendation(stats)
 
     def _generate_recommendation(self, stats):
-        counts = stats["counts"]
-        total = sum(counts.values())
+        # Show loading popup
+        self.loading_popup = Popup(
+            title="AI is thinking...",
+            content=Label(text="Generating recommendation..."),
+            size_hint=(None, None),
+            size=(300, 150),
+            auto_dismiss=False
+        )
+        self.loading_popup.open()
 
-        if total == 0:
-            return "No entries yet this month. Try writing regularly to track your wellbeing."
+        prompt = f"""
+        Based on these diary stats:
+        - Average polarity: {stats['avg_polarity']:.2f}
+        - Counts: {stats['counts']}
+        - Happiest day: {stats['happiest_day']}
 
-        sad_total = counts["sad"] + counts["very sad"]
-        happy_total = counts["happy"] + counts["very happy"]
+        Please give the user a short, straight-forward paragraph about things they can improve
+        for the future (similar to a short essay, not an email format please). Please limit to only 2 sentences.
+        """
 
-        if sad_total > happy_total:
-            return "You’ve had more sad days recently. Consider adding positive reflections or gratitude notes."
-        elif happy_total > sad_total:
-            return "Your wellbeing trend is positive — keep nurturing the habits that make you feel good!"
-        else:
-            return "Your month looks balanced. Keep journaling to maintain awareness of your wellbeing."
+        def run_ai():
+            ai_text = get_ai_recommendation(prompt)
+            if "AI unavailable" in ai_text:
+                ai_text = "(Fallback) Keep focusing on your wellbeing and celebrate small wins."
+
+            # Schedule UI update back on main thread
+            Clock.schedule_once(lambda dt: self._show_ai_result(ai_text), 0.1)
+
+        threading.Thread(target=run_ai, daemon=True).start()
+
+    def _show_ai_result(self, ai_text):
+        if hasattr(self, "loading_popup"):
+            self.loading_popup.dismiss()
+
+        lbl = Label(
+            text=f"Recommendation:\n{ai_text}",
+            bold=True,
+            color=(0.2, 0.6, 0.2, 1),
+            text_size=(self.width - 40, None),
+            halign="left",
+            valign="top",
+            shorten=False,
+            size_hint_y=None,
+            height=150
+        )
+        self.ids.summary_container.add_widget(lbl)
 
     def refresh_page(self):
-        from kivy.uix.popup import Popup
         from kivy.uix.button import Button
 
         content = BoxLayout(orientation="vertical", spacing=10, padding=10)
@@ -144,7 +172,6 @@ class SummaryScreen(Screen):
         popup.open()
 
     def _show_popup(self, title, message):
-        from kivy.uix.popup import Popup
         from kivy.uix.button import Button
         content = BoxLayout(orientation="vertical", spacing=10, padding=10)
         content.add_widget(Label(text=message))

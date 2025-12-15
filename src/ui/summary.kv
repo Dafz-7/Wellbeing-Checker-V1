@@ -75,14 +75,24 @@
 
             # Scrollable container for chart + info
             ScrollView:
-                size_hint_y: 1
                 BoxLayout:
-                    id: summary_container
                     orientation: "vertical"
                     spacing: 10
                     padding: 10
                     size_hint_y: None
                     height: self.minimum_height
+
+                    BoxLayout:  # Chart container
+                        id: chart_box
+                        size_hint_y: None
+                        height: 450
+
+                    BoxLayout:  # Text + AI container
+                        id: summary_container
+                        orientation: "vertical"
+                        spacing: 10
+                        size_hint_y: None
+                        height: self.minimum_height
 
             Button:
                 text: "Show Monthly Summary"
